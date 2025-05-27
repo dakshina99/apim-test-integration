@@ -29,7 +29,7 @@ TEST_MODE=$7
 TEST_GROUP=$8
 PRODUCT_REPOSITORY_NAME=$(echo $PRODUCT_REPOSITORY | rev | cut -d'/' -f1 | rev | cut -d'.' -f1)
 PRODUCT_REPOSITORY_PACK_DIR="$TESTGRID_DIR/$PRODUCT_REPOSITORY_NAME/all-in-one-apim/modules/distribution/product/target"
-INT_TEST_MODULE_DIR="$TESTGRID_DIR/$PRODUCT_REPOSITORY_NAME/all-in-one-apim/modules/integration"
+INT_TEST_MODULE_DIR="$TESTGRID_DIR/$PRODUCT_REPOSITORY_NAME/all-in-one-apim/modules/integration-v2"
 
 # CloudFormation properties
 CFN_PROP_FILE="${TESTGRID_DIR}/cfn-props.properties"
@@ -43,6 +43,7 @@ CF_DB_USERNAME=$(grep -w "CF_DB_USERNAME" ${CFN_PROP_FILE} | cut -d"=" -f2)
 CF_DB_HOST=$(grep -w "CF_DB_HOST" ${CFN_PROP_FILE} | cut -d"=" -f2)
 CF_DB_PORT=$(grep -w "CF_DB_PORT" ${CFN_PROP_FILE} | cut -d"=" -f2)
 CF_DB_NAME=$(grep -w "SID" ${CFN_PROP_FILE} | cut -d"=" -f2)
+MIGRATED_DB=$(grep -w "MIGRATED_DB" ${CFN_PROP_FILE} | cut -d"=" -f2)
 
 function log_info(){
     echo "[INFO][$(date '+%Y-%m-%d %H:%M:%S')]: $1"
@@ -62,6 +63,7 @@ function install_jdk(){
     tar -xzf "$jdk_file.tar.gz" -C /opt/${jdk_name} --strip-component=1
 
     export JAVA_HOME=/opt/${jdk_name}
+    export PATH=$JAVA_HOME/bin:$PATH
     echo $JAVA_HOME
 }
 
@@ -107,6 +109,19 @@ sed -i "s|DB_PASSWORD|${CF_DB_PASSWORD}|g" ${INFRA_JSON}
 sed -i "s|DB_NAME|${DB_NAME}|g" ${INFRA_JSON}
 
 export_db_params ${DB_TYPE}
+
+# log the configurations
+cat $TESTGRID_DIR/${PRODUCT_PACK_NAME}/repository/conf/deployment.toml
+
+if [ -n "$MIGRATED_DB" ] && [ "$MIGRATED_DB" == "true" ];
+then
+    log_info "Run APIM Migration..."
+    wget "https://raw.githubusercontent.com/dakshina99/apim-test-integration/refs/heads/cucumber-test/apim-migration/run-apim-migration.sh"
+    bash run-apim-migration.sh ${JDK_TYPE} ${INFRA_JSON}
+else
+    log_info "Skipping DB migration and continue with integration tests"
+fi
+
 # delete if the folder is available
 rm -rf $$PRODUCT_REPOSITORY_PACK_DIR
 
@@ -117,4 +132,4 @@ cd $TESTGRID_DIR && zip -qr $PRODUCT_PACK_NAME.zip $PRODUCT_PACK_NAME
 mv $TESTGRID_DIR/$PRODUCT_PACK_NAME.zip $PRODUCT_REPOSITORY_PACK_DIR/.
 log_info "install pack into local maven Repository"
 mvn install:install-file -Dfile=$PRODUCT_REPOSITORY_PACK_DIR/$PRODUCT_PACK_NAME.zip -DgroupId=org.wso2.am -DartifactId=wso2am -Dversion=$PRODUCT_VERSION -Dpackaging=zip --file=$PRODUCT_REPOSITORY_PACK_DIR/../pom.xml 
-cd $INT_TEST_MODULE_DIR  && mvn clean install -fae -B -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn -Ptestgrid -DskipBenchMarkTest=true -Dhttp.keepAlive=false
+cd $INT_TEST_MODULE_DIR  && mvn clean install
